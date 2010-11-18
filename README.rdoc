@@ -1,0 +1,20 @@
+== Description
+
+dump table's structure and data between mysql servers and databases.
+
+== Example
+  require 'rubygems'
+  require 'mysql2mysql' 
+  Mysql2Mysql.new.
+    from('mysql://mysql.server1/test?user=root&password=pass').
+    to('mysql://mysql.server2/test?user=root&password=pass').
+    tables('test' => :all, 'mysql' => /^time_zone/).
+    dump(:charset => 'utf8', 'with_data' => true)
+
+== Version
+
+v0.0.1
+
+== Author
+
+xianhua.zhou<xianhua.zhou@gmail.com>

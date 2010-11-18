@@ -1,0 +1,9 @@
+[sudo] gem install mysql2mysql
+
+$ irb
+> require 'rubygems'
+true
+> require 'mysql2mysql'
+true
+> Mysql2Mysql.version 
+0.0.1

@@ -1,0 +1,277 @@
+#
+# == Description
+#
+# dump table's structure and data between mysql servers and databases.
+#
+# == Example
+#
+#   Please read README.rdoc
+#
+# == Version
+# 
+#   v0.0.1
+#
+# == Author
+#
+#   xianhua.zhou<xianhua.zhou@gmail.com>
+#
+require 'sequel'
+
+class Mysql2Mysql 
+
+  VERSION = '0.0.1'
+
+  def self.version
+    VERSION
+  end
+
+  @@methods = %w(from to tables exclude)
+
+  def initialize(opts = {})
+    @@methods.each do |method_name|
+      send method_name, opts[method_name.to_sym] or opts[method_name.to_s]
+    end
+  end
+
+  @@methods.each do |method_name|
+    class_eval %Q{
+      def #{method_name}(#{method_name})
+        @#{method_name} = #{method_name} 
+        self
+      end
+    }
+  end
+
+  def dump(opts = {}) 
+    # initialize database connections
+    init_db_connection
+
+    # initialize opts
+    opts = dump_opts opts  
+
+    # before all callback
+    before_dump opts
+
+    tables_list.each do |database, tables| 
+      tables.each do |table|
+
+        # before each callback
+        if opts[:before_each].respond_to? :call
+          to_database, to_table = opts[:before_each].call(database, table)
+        end
+        to_database ||= database
+        to_table ||= table 
+
+        dump_table database, table, to_database, to_table, opts
+
+        # after each callback
+        if opts[:after_each].respond_to? :call
+          opts[:after_each].call(database, table)
+        end
+      end
+    end
+
+    # after all callback
+    after_dump opts
+
+  end
+
+  private
+
+  def dump_opts(opts)
+    {
+      # it's used for "SET NAMES #{charset}"
+      :charset => 'utf8',
+
+      # dump data or just table structure
+      :with_data => true,
+
+      # drop the table before do dump the table
+      :drop_table_first => false,
+
+      # callbacks
+      :before_all => nil,
+      :after_all => nil,
+      :before_each => nil,
+      :after_each => nil
+    }.merge(opts)
+  end
+
+  def before_dump(opts)
+    # prepare dump 
+    [
+      "SET NAMES #{opts[:charset]}",
+      "SET FOREIGN_KEY_CHECKS = 0",
+      "SET UNIQUE_CHECKS = 0"
+    ].each do |sql|
+      run_sql sql, :on_connection => @to_db
+    end
+    opts[:before_all].call(@from_db, @to_db) if opts[:after_all].respond_to? :call
+  end
+
+  def after_dump(opts)
+    # clean up 
+    [
+      "SET FOREIGN_KEY_CHECKS = 1",
+      "SET UNIQUE_CHECKS = 1"
+    ].each do |sql|
+      run_sql sql, :on_connection => @to_db
+    end
+    opts[:after_all].call(@from_db, @to_db) if opts[:after_all].respond_to? :call 
+  end
+
+  def dump_table(from_database, from_table, to_database, to_table, opts = {})
+    use_db from_database, :on_connection => @from_db
+    create_table_ddl = @from_db.fetch("SHOW CREATE TABLE #{from_table}").first[:'Create Table']
+
+    # create database 
+    begin
+      use_db to_database, :on_connection => @to_db
+    rescue Sequel::DatabaseError => e
+      begin
+        run_sql "CREATE DATABASE #{to_database}", :on_connection => @to_db
+        use_db to_database, :on_connection => @to_db
+      rescue Exception => e
+        raise Mysql2MysqlException.new "create database #{to_database} failed\n  DSN info: #{@to_db}"
+      end
+    end
+
+    # create table
+    unless @to_db.table_exists? to_table.to_sym
+      begin
+        run_sql create_table_ddl.gsub("`#{from_table}`", "`#{to_table}`"), :on_connection => @to_db
+      rescue Exception => e
+        raise Mysql2MysqlException.new "create table #{to_table} failed in the database #{to_database}\n  DSN info: #{@to_db}\n: message: #{e}"
+      end
+    end
+
+    return unless opts[:with_data] 
+
+    # dump data
+    @from_db.fetch("SELECT * FROM #{from_table}").each do |row|
+      @to_db[to_table.to_sym].insert row
+    end
+  end
+
+  def run_sql(sql, opts)
+    opts[:on_connection].run sql 
+  end
+
+  def use_db(db, opts)
+    run_sql "use #{db}", opts
+  end
+
+  def init_db_connection
+    @from_db = db_connection @from
+    @to_db = db_connection @to
+  end
+
+  def db_connection(dsn)
+    dsn[:adapter] = 'mysql' if dsn.is_a? Hash
+    Sequel.connect(dsn)
+  end
+
+  def tables_list
+    raise Mysql2MysqlException.new 'No tables need to dump' if @tables.nil?
+    filter_tables
+  end
+
+  def all_databases
+    @from_db.fetch('SHOW DATABASES').collect do |row|
+      row[:Database]
+    end
+  end
+
+  def filter_tables 
+    all_valid_tables = \
+      if is_all? @tables
+        all_databases.inject({}) do |all_tables, dbname|
+          all_tables.merge dbname => get_tables_by_db(dbname)
+        end
+      else
+        all_tables = {}
+        all_databases.each do |dbname|
+          @tables.each do |orig_dbname, orig_tbname|
+            next unless is_eql_or_match?(orig_dbname, dbname)
+
+            tables = get_tables_by_db dbname 
+
+            if is_all? orig_tbname
+              all_tables[dbname] = tables
+              break
+            end
+
+            orig_tbnames = [orig_tbname] unless orig_tbname.is_a? Array
+            tables = tables.find_all do |tbname|
+              orig_tbnames.find do |orig_tbname|
+                is_eql_or_match?(orig_tbname, tbname)
+              end
+            end
+
+            all_tables[dbname] = tables
+          end
+        end
+
+        all_tables
+      end
+
+    filter all_valid_tables
+  end
+
+  def is_eql_or_match?(origin, current)
+    if origin.is_a? Regexp
+      origin.match current 
+    else
+      origin.to_s == current.to_s
+    end
+  end
+
+  def is_all?(items)
+    [:all, '*'].include? items
+  end
+
+  def get_tables_by_db(dbname)
+    use_db dbname, :on_connection => @from_db
+    @from_db.tables
+  end
+
+  def filter(origin_tables)
+    need_exclude = lambda do |origin, exclude|
+      is_eql_or_match? origin.to_s, exclude
+    end
+
+    return origin_tables if @exclude.nil?
+
+    exclude_tables = case @exclude
+                    when String
+                      {@exclude => '*'}
+                    when Array
+                      @exclude.inject({}) do |items, it|
+                        items[it] = '*'
+                      end
+                    when Hash 
+                      @exclude
+                    else
+                      raise Mysql2MysqlException.new 'Invalid exclude parameters given'
+                    end
+
+    reject_action = lambda do |dbname, tbname|
+      exclude_tables.each do |exclude_dbname, exclude_tbname|
+        if need_exclude.call(dbname, exclude_dbname)
+          if is_all?(exclude_tbname) or need_exclude.call(tbname, exclude_tbname)
+            return true
+          end
+        end
+      end
+
+      false
+    end
+
+    origin_tables.reject do |dbname, tbname|
+      reject_action.call(dbname, tbname)
+    end
+  end
+end
+
+class Mysql2MysqlException < Exception
+end
