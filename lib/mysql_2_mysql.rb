@@ -118,6 +118,9 @@ class Mysql2Mysql
       run_sql sql, :on_connection => @to_db
     end
     opts[:after_all].call(@from_db, @to_db) if opts[:after_all].respond_to? :call 
+
+    @from_db.disconnect
+    @to_db.disconnect
   end
 
   def dump_table(from_database, from_table, to_database, to_table, opts = {})
@@ -136,8 +139,10 @@ class Mysql2Mysql
       end
     end
 
+    run_sql "DROP TABLE #{to_table}", :on_connection => @to_db if opts[:drop_table_first]
+
     # create table
-    unless @to_db.table_exists? to_table.to_sym
+    if opts[:drop_table_first] or not @to_db.table_exists?(to_table.to_sym)
       begin
         run_sql create_table_ddl.gsub("`#{from_table}`", "`#{to_table}`"), :on_connection => @to_db
       rescue Exception => e

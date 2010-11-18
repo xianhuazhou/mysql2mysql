@@ -9,7 +9,7 @@ dump table's structure and data between mysql servers and databases.
     from('mysql://mysql.server1/test?user=root&password=pass').
     to('mysql://mysql.server2/test?user=root&password=pass').
     tables('test' => :all, 'mysql' => /^time_zone/).
-    dump(:charset => 'utf8', 'with_data' => true)
+    dump(:charset => 'utf8', :with_data => true)
 
 == Version
 
