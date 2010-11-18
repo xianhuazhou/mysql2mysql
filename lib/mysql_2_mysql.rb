@@ -241,18 +241,18 @@ class Mysql2Mysql
   end
 
   def filter(origin_tables)
-    need_exclude = lambda do |origin, exclude|
-      is_eql_or_match? origin.to_s, exclude
+    need_exclude = lambda do |origin, current|
+      is_eql_or_match? origin, current 
     end
 
     return origin_tables if @exclude.nil?
 
     exclude_tables = case @exclude
-                    when String
+                    when Symbol, String
                       {@exclude => '*'}
                     when Array
                       @exclude.inject({}) do |items, it|
-                        items[it] = '*'
+                        items.merge it => '*'
                       end
                     when Hash 
                       @exclude
@@ -260,21 +260,27 @@ class Mysql2Mysql
                       raise Mysql2MysqlException.new 'Invalid exclude parameters given'
                     end
 
-    reject_action = lambda do |dbname, tbname|
-      exclude_tables.each do |exclude_dbname, exclude_tbname|
-        if need_exclude.call(dbname, exclude_dbname)
-          if is_all?(exclude_tbname) or need_exclude.call(tbname, exclude_tbname)
-            return true
-          end
-        end
+    reject_table = lambda do |dbname, tbname|
+      exclude_tables.each do |exclude_dbname, exclude_tbnames|
+        next unless need_exclude.call(exclude_dbname, dbname)
+
+        return true if is_all?(exclude_tbnames)
+
+        exclude_tbnames = [exclude_tbnames] unless exclude_tbnames.is_a? Array
+        return true if exclude_tbnames.find {|exclude_tbname|
+          need_exclude.call(exclude_tbname, tbname)
+        }
       end
 
       false
     end
 
-    origin_tables.reject do |dbname, tbname|
-      reject_action.call(dbname, tbname)
+    origin_tables.each do |dbname, tbnames|
+      origin_tables[dbname] = tbnames.find_all do |tbname|
+        not reject_table.call(dbname, tbname)
+      end
     end
+
   end
 end
 
