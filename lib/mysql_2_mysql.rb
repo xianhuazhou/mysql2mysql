@@ -169,6 +169,8 @@ class Mysql2Mysql
     return unless opts[:with_data] 
 
     total = from_db_table.count
+    return if total == 0
+
     limit = opts[:rows_per_select]
     limit = total if limit >= total
 
@@ -218,39 +220,43 @@ class Mysql2Mysql
   end
 
   def filter_tables 
-    all_valid_tables = \
-      if is_all? @tables
-        all_databases.inject({}) do |all_tables, dbname|
-          all_tables.merge dbname => get_tables_by_db(dbname)
+    filter all_valid_tables
+  end
+
+  def all_valid_tables
+    tables = convert_tables @tables
+
+    if is_all? tables
+      return all_databases.inject({}) do |all_tables, dbname|
+        all_tables.merge dbname => get_tables_by_db(dbname)
+      end
+    end
+
+    all_tables = {}
+
+    all_databases.each do |dbname|
+      tables.each do |orig_dbname, orig_tbname|
+        next unless is_eql_or_match?(orig_dbname, dbname)
+
+        tables = get_tables_by_db dbname 
+
+        if is_all? orig_tbname
+          all_tables[dbname] = tables
+          break
         end
-      else
-        all_tables = {}
-        all_databases.each do |dbname|
-          @tables.each do |orig_dbname, orig_tbname|
-            next unless is_eql_or_match?(orig_dbname, dbname)
 
-            tables = get_tables_by_db dbname 
-
-            if is_all? orig_tbname
-              all_tables[dbname] = tables
-              break
-            end
-
-            orig_tbnames = [orig_tbname] unless orig_tbname.is_a? Array
-            tables = tables.find_all do |tbname|
-              orig_tbnames.find do |orig_tbname|
-                is_eql_or_match?(orig_tbname, tbname)
-              end
-            end
-
-            all_tables[dbname] = tables
+        orig_tbnames = [orig_tbname] unless orig_tbname.is_a? Array
+        tables = tables.find_all do |tbname|
+          orig_tbnames.find do |orig_tbname|
+            is_eql_or_match?(orig_tbname, tbname)
           end
         end
 
-        all_tables
+        all_tables[dbname] = tables
       end
+    end
 
-    filter all_valid_tables
+    all_tables
   end
 
   def is_eql_or_match?(origin, current)
@@ -271,34 +277,19 @@ class Mysql2Mysql
   end
 
   def filter(origin_tables)
-    need_exclude = lambda do |origin, current|
-      is_eql_or_match? origin, current 
-    end
-
     return origin_tables if @exclude.nil?
 
-    exclude_tables = case @exclude
-                    when Symbol, String
-                      {@exclude => '*'}
-                    when Array
-                      @exclude.inject({}) do |items, it|
-                        items.merge it => '*'
-                      end
-                    when Hash 
-                      @exclude
-                    else
-                      raise Mysql2MysqlException.new 'Invalid exclude parameters given'
-                    end
+    exclude_tables = convert_tables @exclude
 
     reject_table = lambda do |dbname, tbname|
       exclude_tables.each do |exclude_dbname, exclude_tbnames|
-        next unless need_exclude.call(exclude_dbname, dbname)
+        next unless is_eql_or_match?(exclude_dbname, dbname)
 
         return true if is_all?(exclude_tbnames)
 
         exclude_tbnames = [exclude_tbnames] unless exclude_tbnames.is_a? Array
         return true if exclude_tbnames.find {|exclude_tbname|
-          need_exclude.call(exclude_tbname, tbname)
+          is_eql_or_match? exclude_tbname, tbname
         }
       end
 
@@ -310,8 +301,23 @@ class Mysql2Mysql
         not reject_table.call(dbname, tbname)
       end
     end
-
   end
+
+  def convert_tables(tables)
+    case tables
+    when Symbol, String
+      {tables.to_s => '*'}
+    when Array
+      tables.inject({}) do |items, it|
+        items.merge it => '*'
+      end
+    when Hash 
+      tables
+    else
+      raise Mysql2MysqlException.new 'Invalid "tables" or "exclude" parameters given'
+    end
+  end
+
 end
 
 class Mysql2MysqlException < Exception
