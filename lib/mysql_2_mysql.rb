@@ -81,13 +81,16 @@ class Mysql2Mysql
   def dump_opts(opts)
     {
       # it's used for "SET NAMES #{charset}"
-      :charset => 'utf8',
+      :charset => nil,
 
       # dump data or just table structure
       :with_data => true,
 
       # drop the table before do dump the table
-      :drop_table_first => false,
+      :drop_table_first => true,
+
+      # number of rows per select
+      :rows_per_select => 1000,
 
       # callbacks
       :before_all => nil,
@@ -99,11 +102,12 @@ class Mysql2Mysql
 
   def before_dump(opts)
     # prepare dump 
-    [
-      "SET NAMES #{opts[:charset]}",
+    sqls = [
       "SET FOREIGN_KEY_CHECKS = 0",
       "SET UNIQUE_CHECKS = 0"
-    ].each do |sql|
+    ]
+    sqls << "SET NAMES #{opts[:charset]}" if opts[:charset]
+    sqls.each do |sql|
       run_sql sql, :on_connection => @to_db
     end
     opts[:before_all].call(@from_db, @to_db) if opts[:after_all].respond_to? :call
@@ -125,9 +129,15 @@ class Mysql2Mysql
 
   def dump_table(from_database, from_table, to_database, to_table, opts = {})
     use_db from_database, :on_connection => @from_db
-    create_table_ddl = @from_db.fetch("SHOW CREATE TABLE #{from_table}").first[:'Create Table']
 
-    # create database 
+    create_database to_database
+
+    create_table from_table, to_table, opts 
+
+    dump_table_data @from_db[from_table.to_sym], @to_db[to_table.to_sym], opts
+  end
+
+  def create_database(to_database)
     begin
       use_db to_database, :on_connection => @to_db
     rescue Sequel::DatabaseError => e
@@ -138,23 +148,43 @@ class Mysql2Mysql
         raise Mysql2MysqlException.new "create database #{to_database} failed\n  DSN info: #{@to_db}"
       end
     end
+  end
 
-    run_sql "DROP TABLE #{to_table}", :on_connection => @to_db if opts[:drop_table_first]
+  def create_table(from_table, to_table, opts)
+    create_table_ddl = @from_db.fetch("SHOW CREATE TABLE #{from_table}").
+      first[:'Create Table'].
+      gsub("`#{from_table}`", "`#{to_table}`")
 
-    # create table
+    run_sql "DROP TABLE IF EXISTS #{to_table}", :on_connection => @to_db if opts[:drop_table_first]
     if opts[:drop_table_first] or not @to_db.table_exists?(to_table.to_sym)
       begin
-        run_sql create_table_ddl.gsub("`#{from_table}`", "`#{to_table}`"), :on_connection => @to_db
+        run_sql create_table_ddl, :on_connection => @to_db
       rescue Exception => e
         raise Mysql2MysqlException.new "create table #{to_table} failed in the database #{to_database}\n  DSN info: #{@to_db}\n: message: #{e}"
       end
     end
+  end
 
+  def dump_table_data(from_db_table, to_db_table, opts)
     return unless opts[:with_data] 
 
-    # dump data
-    @from_db.fetch("SELECT * FROM #{from_table}").each do |row|
-      @to_db[to_table.to_sym].insert row
+    total = from_db_table.count
+    limit = opts[:rows_per_select]
+    limit = total if limit >= total
+
+    columns = from_db_table.columns
+
+    # temp variables
+    rows = []
+    offset = 0
+    row = {}
+
+    0.step(total - 1, limit) do |offset|
+      rows = from_db_table.limit(limit, offset).collect do |row|
+        row.values
+      end
+
+      to_db_table.import columns, rows
     end
   end
 

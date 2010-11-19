@@ -15,6 +15,10 @@ dump table's structure and data between mysql servers and databases.
 
 v0.0.1
 
+== TODO
+
+add some spec tests
+
 == Author
 
 xianhua.zhou<xianhua.zhou@gmail.com>
