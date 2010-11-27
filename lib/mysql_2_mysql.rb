@@ -68,6 +68,7 @@ class Mysql2Mysql
         if opts[:after_each].respond_to? :call
           opts[:after_each].call(database, table)
         end
+
       end
     end
 
@@ -110,7 +111,7 @@ class Mysql2Mysql
     sqls.each do |sql|
       run_sql sql, :on_connection => @to_db
     end
-    opts[:before_all].call(@from_db, @to_db) if opts[:after_all].respond_to? :call
+    opts[:before_all].call(@from_db, @to_db) if opts[:before_all].respond_to? :call
   end
 
   def after_dump(opts)
@@ -148,6 +149,7 @@ class Mysql2Mysql
         raise Mysql2MysqlException.new "create database #{to_database} failed\n  DSN info: #{@to_db}"
       end
     end
+    to_database
   end
 
   def create_table(from_table, to_table, opts)
@@ -199,8 +201,12 @@ class Mysql2Mysql
   end
 
   def init_db_connection
-    @from_db = db_connection @from
-    @to_db = db_connection @to
+    @from_db = db_connection(@from)
+    if @from == @to
+      @to_db = @from_db
+    else
+      @to_db = db_connection(@to)
+    end
   end
 
   def db_connection(dsn)
@@ -210,7 +216,7 @@ class Mysql2Mysql
 
   def tables_list
     raise Mysql2MysqlException.new 'No tables need to dump' if @tables.nil?
-    filter_tables
+    filter all_valid_tables
   end
 
   def all_databases
@@ -219,14 +225,10 @@ class Mysql2Mysql
     end
   end
 
-  def filter_tables 
-    filter all_valid_tables
-  end
-
   def all_valid_tables
-    tables = convert_tables @tables
+    orig_tables = convert_tables @tables
 
-    if is_all? tables
+    if is_all? orig_tables
       return all_databases.inject({}) do |all_tables, dbname|
         all_tables.merge dbname => get_tables_by_db(dbname)
       end
@@ -235,7 +237,7 @@ class Mysql2Mysql
     all_tables = {}
 
     all_databases.each do |dbname|
-      tables.each do |orig_dbname, orig_tbname|
+      orig_tables.each do |orig_dbname, orig_tbname|
         next unless is_eql_or_match?(orig_dbname, dbname)
 
         tables = get_tables_by_db dbname 
@@ -309,7 +311,7 @@ class Mysql2Mysql
       {tables.to_s => '*'}
     when Array
       tables.inject({}) do |items, it|
-        items.merge it => '*'
+        items.merge it.to_s => '*'
       end
     when Hash 
       tables
