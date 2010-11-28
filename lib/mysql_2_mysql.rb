@@ -75,6 +75,8 @@ class Mysql2Mysql
     # after all callback
     after_dump opts
 
+    # disconnect
+    free_db_connection
   end
 
   private
@@ -107,7 +109,13 @@ class Mysql2Mysql
       "SET FOREIGN_KEY_CHECKS = 0",
       "SET UNIQUE_CHECKS = 0"
     ]
-    sqls << "SET NAMES #{opts[:charset]}" if opts[:charset]
+
+    if if opts[:charset]
+      sql = "SET NAMES #{opts[:charset]}"
+      run_sql sql, :on_connection => @from_db
+      sqls << change_charset
+    end
+
     sqls.each do |sql|
       run_sql sql, :on_connection => @to_db
     end
@@ -203,6 +211,11 @@ class Mysql2Mysql
   def init_db_connection
     @from_db = db_connection(@from)
     @to_db = db_connection(@to)
+  end
+
+  def free_db_connection
+    @from_db.disconnect if @from_db
+    @to_db.disconnect if @to_db
   end
 
   def db_connection(dsn)

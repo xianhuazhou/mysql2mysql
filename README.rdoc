@@ -1,15 +1,104 @@
 == Description
 
-dump table's structure and data between mysql servers and databases.
+Dump table's structure and data between MySql servers and databases.
 
-== Example
+== INSTALL
+
+$ [sudo] gem install mysql2mysql
+
+== Requirements
+
+Sequel with the mysql driver.
+
+== Examples
+
   require 'rubygems'
   require 'mysql2mysql' 
   Mysql2Mysql.new.
     from('mysql://mysql.server1/test?user=root&password=pass').
     to('mysql://mysql.server2/test?user=root&password=pass').
-    tables('test' => :all, 'mysql' => /^time_zone/).
-    dump(:charset => 'utf8', :with_data => true)
+    tables('dbname').
+    dump(:charset => 'utf8')
+
+== Methods 
+
+   from: parameters for connect to the source MySql server, it's used for Sequel.connect
+   to: parameters for connect to the target MySql server, it's used for Sequel.connect
+   tables: databases/tables need to dump
+   exclude: databases/tables need to exclude
+   dump: do the clone databases/tables action with some options
+
+== Connection 
+
+  The "from" and "to" methods provide a DSN String or Hash for the database connection.
+    Mysql2Mysql.new.from('mysql://localhost/test?user=root&password=pass')
+  It's same as below
+    Mysql2Mysql.new.from(:host => 'localhost', :user => 'root', :password => 'pass)
+
+  BTW: if the source and target server in the same manchine, please don't use the "localhost" for 2 connections,
+  but it works if one connection use "localhost", another use "127.0.0.1".
+
+== tables && exclude
+
+  Both methods are very similar, but the "exclude" method will take some tables out from the "tables" method. So,
+  finall_tables_to_dump = tables - exclude
+
+  String, Hash, Array are supported. e.g.
+
+  # all databases/tables
+  tables('*')
+
+  # all tables in the database "dbname"
+  tables('dbname')
+
+  # same as above
+  tables(:dbname)
+
+  # all tables in the database "blog" and "log"
+  tables(['blog', 'log']) 
+
+  # same as above
+  tables({'blog' => '*', 'log' => '*'})
+
+  # tables "posts" and "comments" in the database "blog" and
+  # all tables in the database "log"
+  tables({'blog' => ['posts', 'comments'], 'log' => '*'})
+
+  # Regular expression supported
+
+  # all tables with prefix 'wp_' in the database 'blog'
+  tables({:blog => /^(wp)_/})
+
+  # all tables with prefix 'wp_' in the database 'blog' and
+  # all tables only contains 26 lowercase letters in the database "log"
+  tables({:blog => /^(wp)_/, :log => /^[a-z]+$/})
+
+  # all databaes with prefix "www_"
+  tables({/^(www)_/ => '*')
+
+  # exclude
+
+  # only the 'log' database's tables will be cloned 
+  tables('blog', 'log').exclude('blog')
+
+  # all databases/tables exclude the database "mysql" and "test"
+  tables('*').exclude(['mysql', 'test'])
+
+  # all tables in the database "blog" exclude the "comments" table
+  tables('blog').exclude({'blog' => 'comments'})
+
+== dump
+
+  The "dump" method is expect a Hash as it's parameter, defualt is {}. options:
+
+    :charset          => "utf8", "latin" or any other valid charsets, default is nil
+    :with_data        => Dump data if it's true, otherwise only tables' structure will be dumped, default is true
+    :drop_table_first => Drop the table first if the table is already exists, default is true
+    :rows_per_select  => Number of rows pre select from the source server for the import, default is 1000
+    :before_all       => Proc style call back, it can be executed before the dump action started, default is nil
+    :after_all        => Proc style call back, it can be executed after the dump action finished, default is nil
+    :before_each      => Proc style call back, it can be executed before each table dump started, default is nil
+    :aftere_each      => Proc style call back, it can be executed after each table dump finished,, default is nil
 
 == Version
 
@@ -17,7 +106,7 @@ v0.0.1
 
 == TODO
 
-add some spec tests
+more docs and specs
 
 == Author
 
