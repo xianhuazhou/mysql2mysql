@@ -110,10 +110,10 @@ class Mysql2Mysql
       "SET UNIQUE_CHECKS = 0"
     ]
 
-    if if opts[:charset]
+    if opts[:charset]
       sql = "SET NAMES #{opts[:charset]}"
       run_sql sql, :on_connection => @from_db
-      sqls << change_charset
+      sqls << sql 
     end
 
     sqls.each do |sql|
