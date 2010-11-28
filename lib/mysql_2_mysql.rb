@@ -317,7 +317,11 @@ class Mysql2Mysql
   def convert_tables(tables)
     case tables
     when Symbol, String
-      {tables.to_s => '*'}
+      if is_all? tables
+        tables
+      else
+        {tables.to_s => '*'}
+      end
     when Array
       tables.inject({}) do |items, it|
         items.merge it.to_s => '*'

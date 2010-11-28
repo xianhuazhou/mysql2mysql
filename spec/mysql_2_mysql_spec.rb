@@ -195,6 +195,8 @@ end
 describe Mysql2Mysql, 'convert_tables' do
   it "should support several different types" do
     m2m = Mysql2Mysql.new
+    m2m.send(:convert_tables, '*').should == '*'
+    m2m.send(:convert_tables, :all).should == :all 
     m2m.send(:convert_tables, 'db_m2m' => '*').should == {'db_m2m' => '*'}
     m2m.send(:convert_tables, 'db_m2m').should == {'db_m2m' => '*'}
     m2m.send(:convert_tables, :db_m2m).should == {'db_m2m' => '*'}
