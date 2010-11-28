@@ -200,6 +200,30 @@ describe Mysql2Mysql, 'convert_tables' do
     m2m.send(:convert_tables, :db_m2m).should == {'db_m2m' => '*'}
     m2m.send(:convert_tables, [:db1, :db2]).should == {'db1' => '*', 'db2' => '*'}
     m2m.send(:convert_tables, {:db1 => ['tb1', 'tb2'], :db2 => '*'}).should == {:db1 => ['tb1', 'tb2'], :db2 => '*'}
+    lambda{m2m.send(:convert_tables, lambda{})}.should raise_error(Mysql2MysqlException)
+  end
+end
+
+describe Mysql2Mysql, 'is_eql_or_match?' do
+  it "should support regular expression, symbol and string compare" do
+    m2m = Mysql2Mysql.new
+    m2m.send(:is_eql_or_match?, 'abc', 'abc').should be_true
+    m2m.send(:is_eql_or_match?, :abc, 'abc').should be_true
+    m2m.send(:is_eql_or_match?, 'abc', :abc).should be_true
+    m2m.send(:is_eql_or_match?, 10, "10").should be_true
+    m2m.send(:is_eql_or_match?, /^[0-9]$/, 9).should be_true
+    m2m.send(:is_eql_or_match?, /^[0-9]$/, 0).should be_true
+    m2m.send(:is_eql_or_match?, /^[0-9]$/, "3").should be_true
+    m2m.send(:is_eql_or_match?, /^[0-9]$/, 10).should be_false
+  end
+end
+
+describe Mysql2Mysql, 'is_all?' do
+  it "should support '*' and ':all'" do
+    m2m = Mysql2Mysql.new
+    m2m.send(:is_all?, '*').should be_true
+    m2m.send(:is_all?, :all).should be_true
+    m2m.send(:is_all?, 'all').should be_false
   end
 end
 
@@ -255,5 +279,122 @@ describe Mysql2Mysql do
     to_db.run "DROP DATABASE #{db2_name}"
     sequel.disconnect
     disconnect(m2m)
+  end
+
+  it "can clone 1 table from 2 tables" do
+    db_name = 'db_m2m_a'
+    sequel = Sequel.connect $from_dsn
+    sequel.run "DROP DATABASE IF EXISTS #{db_name}"
+    sequel.run "CREATE DATABASE #{db_name}"
+    sequel.run "USE #{db_name}"
+    sequel.run "CREATE TABLE t1(id INT)"
+    sequel.run "CREATE TABLE t2(id INT)"
+
+    m2m = Mysql2Mysql.new :from => $from_dsn, :to => $to_dsn, :tables => {db_name => 't1'}
+    m2m.dump
+    from_db = m2m.instance_variable_get('@from_db')
+    to_db = m2m.instance_variable_get('@to_db')
+
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(db_name)
+    to_db.run "USE #{db_name}"
+    to_db.tables.should == [:t1] 
+
+    to_db.run "DROP DATABASE #{db_name}"
+    disconnect(m2m)
+
+    m2m = Mysql2Mysql.new :from => $from_dsn, :to => $to_dsn, :tables => {db_name => 't2'}
+    m2m.dump
+    from_db = m2m.instance_variable_get('@from_db')
+    to_db = m2m.instance_variable_get('@to_db')
+    to_db.run "USE #{db_name}"
+    to_db.tables.should == [:t2] 
+
+    from_db.run "DROP DATABASE #{db_name}"
+    to_db.run "DROP DATABASE #{db_name}"
+    sequel.disconnect
+    disconnect(m2m)
+  end
+
+  it "should support regular expression" do
+    db1_name = "db_m2m_a"
+    db2_name = "db_m2m_b"
+    db3_name = "db_2m2"
+
+    sequel = Sequel.connect $from_dsn
+    sequel.run "DROP DATABASE IF EXISTS #{db1_name}"
+    sequel.run "DROP DATABASE IF EXISTS #{db2_name}"
+    sequel.run "DROP DATABASE IF EXISTS #{db3_name}"
+    sequel.run "CREATE DATABASE #{db1_name}"
+    sequel.run "CREATE DATABASE #{db2_name}"
+    sequel.run "CREATE DATABASE #{db3_name}"
+    sequel.run "USE #{db1_name}"
+    sequel.run "CREATE TABLE t1(id INT)"
+    sequel.run "CREATE TABLE t2(id INT)"
+    sequel.run "CREATE TABLE t10(id INT)"
+    sequel.run "USE #{db2_name}"
+    sequel.run "CREATE TABLE t3(id INT)"
+
+    m2m = Mysql2Mysql.new :from => $from_dsn, :to => $to_dsn, :tables => {/^(db_m2m)/ => /^t[0-9]$/}
+    m2m.dump
+    from_db = m2m.instance_variable_get('@from_db')
+    to_db = m2m.instance_variable_get('@to_db')
+
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(db1_name)
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(db2_name)
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should_not include(db3_name)
+
+    to_db.run "use #{db1_name}"
+    to_db.tables.should include(:t1)
+    to_db.tables.should include(:t2)
+    to_db.tables.should_not include(:t10)
+    to_db.run "use #{db2_name}"
+    to_db.tables.should include(:t3)
+
+    from_db.run "DROP DATABASE #{db1_name}"
+    from_db.run "DROP DATABASE #{db2_name}"
+    from_db.run "DROP DATABASE #{db3_name}"
+    to_db.run "DROP DATABASE #{db1_name}"
+    to_db.run "DROP DATABASE #{db2_name}"
+    sequel.disconnect
+    disconnect(m2m)
+  end
+
+  it "can clone one database to another database in the same server" do
+    dbname = 'db_m2m'
+    new_dbname = 'db_2m2'
+
+    sequel = Sequel.connect $from_dsn
+    sequel.run "DROP DATABASE IF EXISTS #{dbname}"
+    sequel.run "DROP DATABASE IF EXISTS #{new_dbname}"
+    sequel.run "CREATE DATABASE #{dbname}"
+    sequel.run "USE #{dbname}"
+    sequel.run "CREATE TABLE t1(id INT)"
+    sequel.run "CREATE TABLE t2(id INT)"
+
+    m2m = Mysql2Mysql.new :from => $from_dsn, :to => $from_dsn, :tables => dbname 
+    m2m.dump({
+      :before_each => lambda do |db, tb|
+        return new_dbname, "new_#{tb}" 
+      end
+    })
+    from_db = m2m.instance_variable_get('@from_db')
+    to_db = m2m.instance_variable_get('@to_db')
+
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(dbname)
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(new_dbname)
+    to_db.run "use #{dbname}"
+    to_db.tables.should include(:t1)
+    to_db.tables.should include(:t2)
+    to_db.run "use #{new_dbname}"
+    to_db.tables.should include(:new_t1)
+    to_db.tables.should include(:new_t2)
+
+    from_db.run "DROP DATABASE #{dbname}"
+    from_db.run "DROP DATABASE #{new_dbname}"
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should_not include(dbname)
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should_not include(new_dbname)
+
+    sequel.disconnect
+    from_db.disconnect
   end
 end

@@ -202,11 +202,7 @@ class Mysql2Mysql
 
   def init_db_connection
     @from_db = db_connection(@from)
-    if @from == @to
-      @to_db = @from_db
-    else
-      @to_db = db_connection(@to)
-    end
+    @to_db = db_connection(@to)
   end
 
   def db_connection(dsn)
@@ -263,7 +259,7 @@ class Mysql2Mysql
 
   def is_eql_or_match?(origin, current)
     if origin.is_a? Regexp
-      origin.match current 
+      origin.match current.to_s 
     else
       origin.to_s == current.to_s
     end
@@ -322,5 +318,4 @@ class Mysql2Mysql
 
 end
 
-class Mysql2MysqlException < Exception
-end
+class Mysql2MysqlException < Exception; end
