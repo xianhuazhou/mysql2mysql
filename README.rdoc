@@ -81,8 +81,8 @@ Sequel with the mysql driver.
   # only the 'log' database's tables will be cloned 
   tables('blog', 'log').exclude('blog')
 
-  # all databases/tables exclude the database "mysql" and "test"
-  tables('*').exclude(['mysql', 'test'])
+  # all databases/tables exclude the database "mysql", "test" and "information_schema"
+  tables('*').exclude(['mysql', 'test', 'information_schema'])
 
   # all tables in the database "blog" exclude the "comments" table
   tables('blog').exclude({'blog' => 'comments'})
@@ -99,6 +99,35 @@ Sequel with the mysql driver.
     :after_all        => Proc style call back, it can be executed after the dump action finished, default is nil
     :before_each      => Proc style call back, it can be executed before each table dump started, default is nil
     :aftere_each      => Proc style call back, it can be executed after each table dump finished,, default is nil
+
+== Cases
+
+  clone 2 databases:
+    
+    Mysql2Mysql.new.
+      from('mysql://localhost:3306/test?user=root&password=').
+      to('mysql://127.0.0.1:3307/test?user=root&password=').
+      tables(['db1', 'db2']).
+      dump
+
+  clone all databases exclude "mysql", "test" and "information_schema":
+    Mysql2Mysql.new.
+      from('mysql://localhost:3306/test?user=root&password=').
+      to('mysql://127.0.0.1:3307/test?user=root&password=').
+      tables(:all).
+      exclude([:mysql, :test, :information_schema]).
+      dump(:charset => 'utf8')
+
+  clone all tables in the database "blog" and rename it to "blog2" in the same server:
+    Mysql2Mysql.new.
+      from('mysql://localhost:3306/test?user=root&password=').
+      to('mysql://localhost:3306/test?user=root&password=').
+      tables('blog').
+      dump(:charset => 'utf8', :before_each => lambda {|db, tb|
+        # change the target database name here from "blog" to "blog2"
+        # the table name can be changed as well, but we keep the table name here
+        return "blog2", tb
+      })
 
 == Version
 
