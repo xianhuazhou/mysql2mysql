@@ -6,4 +6,4 @@ true
 > require 'mysql2mysql'
 true
 > Mysql2Mysql.version 
-0.0.1
+0.0.2
