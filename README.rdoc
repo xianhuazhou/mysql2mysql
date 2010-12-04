@@ -103,7 +103,6 @@ Sequel with the mysql driver.
 == Cases
 
   clone 2 databases:
-    
     Mysql2Mysql.new.
       from('mysql://localhost:3306/test?user=root&password=').
       to('mysql://127.0.0.1:3307/test?user=root&password=').
@@ -136,7 +135,3 @@ v0.0.2
 == TODO
 
 more docs and specs
-
-== Author
-
-xianhua.zhou<xianhua.zhou@gmail.com>
