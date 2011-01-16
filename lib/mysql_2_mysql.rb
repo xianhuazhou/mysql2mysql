@@ -57,8 +57,13 @@ class Mysql2Mysql
 
         # before each callback
         if opts[:before_each].respond_to? :call
-          to_database, to_table = opts[:before_each].call(database, table)
+          begin
+            to_database, to_table = opts[:before_each].call(database, table)
+          rescue SkipDumpException
+            next
+          end
         end
+
         to_database ||= database
         to_table ||= table 
 
@@ -336,3 +341,4 @@ class Mysql2Mysql
 end
 
 class Mysql2MysqlException < Exception; end
+class SkipDumpException < Mysql2MysqlException; end

@@ -399,4 +399,41 @@ describe Mysql2Mysql do
     sequel.disconnect
     from_db.disconnect
   end
+
+  it "can ignore one specific table" do
+    dbname = 'db_m2m'
+    new_dbname = 'db_2m2'
+
+    sequel = Sequel.connect $from_dsn
+    sequel.run "DROP DATABASE IF EXISTS #{dbname}"
+    sequel.run "DROP DATABASE IF EXISTS #{new_dbname}"
+    sequel.run "CREATE DATABASE #{dbname}"
+    sequel.run "USE #{dbname}"
+    sequel.run "CREATE TABLE t1(id INT)"
+    sequel.run "CREATE TABLE t2(id INT)"
+
+    m2m = Mysql2Mysql.new :from => $from_dsn, :to => $from_dsn, :tables => dbname 
+    m2m.dump({
+      :before_each => lambda do |db, tb|
+        raise SkipDumpException if tb.eql? :t1
+        return new_dbname, "new_#{tb}" 
+      end
+    })
+    from_db = m2m.instance_variable_get('@from_db')
+    to_db = m2m.instance_variable_get('@to_db')
+
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(dbname)
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should include(new_dbname)
+    to_db.run "use #{new_dbname}"
+    to_db.tables.should_not include(:new_t1)
+    to_db.tables.should include(:new_t2)
+
+    from_db.run "DROP DATABASE #{dbname}"
+    from_db.run "DROP DATABASE #{new_dbname}"
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should_not include(dbname)
+    to_db.fetch("SHOW DATABASES").all.collect{|row|row.values.first}.should_not include(new_dbname)
+
+    sequel.disconnect
+    from_db.disconnect
+  end
 end
